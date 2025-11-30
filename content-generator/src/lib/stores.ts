@@ -385,8 +385,8 @@ export interface ApiSettings {
 	isConnected: boolean;
 }
 
-// システム埋め込みAPIキー
-export const SYSTEM_API_KEY = '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';
+// システムAPIキー（環境変数から読み込み）
+export const SYSTEM_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY || '';
 
 // LocalStorageからAPI設定を読み込み（モデル選択のみ保存）
 function loadApiSettings(): ApiSettings {

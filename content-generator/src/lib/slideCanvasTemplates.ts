@@ -508,8 +508,12 @@ export function savePresentationAsTemplate(
 	templateName: string,
 	templateDescription: string
 ): SlideTemplate {
+	// 同じ名前のカスタムテンプレートがあれば上書き用にIDを取得
+	const customTemplates = loadCustomTemplates();
+	const existingTemplate = customTemplates.find(t => t.name === templateName);
+
 	const template: SlideTemplate = {
-		id: `custom-${Date.now()}`,
+		id: existingTemplate ? existingTemplate.id : `custom-${Date.now()}`,
 		name: templateName,
 		description: templateDescription,
 		preview: `linear-gradient(135deg, ${presentation.theme.backgroundColor} 0%, ${presentation.theme.primaryColor}33 100%)`,

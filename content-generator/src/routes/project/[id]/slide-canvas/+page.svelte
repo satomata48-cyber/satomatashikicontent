@@ -399,6 +399,69 @@
 		}
 	}
 
+	// スライドのコピー＆ペースト用クリップボード
+	let copiedSlide = $state<SlideData | null>(null);
+
+	// スライドをコピー
+	function copySlide(index: number) {
+		const slide = presentation.slides[index];
+		copiedSlide = JSON.parse(JSON.stringify(slide)); // ディープコピー
+		successMessage = `スライド ${index + 1} をコピーしました`;
+		setTimeout(() => successMessage = '', 2000);
+	}
+
+	// スライドをペースト（現在のスライドの後に挿入）
+	function pasteSlide() {
+		if (!copiedSlide) {
+			errorMessage = 'コピーされたスライドがありません';
+			setTimeout(() => errorMessage = '', 2000);
+			return;
+		}
+		// 新しいIDを生成してペースト
+		const newSlide: SlideData = {
+			...JSON.parse(JSON.stringify(copiedSlide)),
+			id: generateSlideId(),
+			name: `${copiedSlide.name} (コピー)`,
+			elements: copiedSlide.elements.map(elem => ({
+				...elem,
+				id: generateElementId()
+			}))
+		};
+		// 現在のスライドの後に挿入
+		const newSlides = [
+			...presentation.slides.slice(0, currentSlideIndex + 1),
+			newSlide,
+			...presentation.slides.slice(currentSlideIndex + 1)
+		];
+		presentation = { ...presentation, slides: newSlides };
+		currentSlideIndex = currentSlideIndex + 1;
+		markAsChanged();
+		successMessage = 'スライドをペーストしました';
+		setTimeout(() => successMessage = '', 2000);
+	}
+
+	// スライドを複製（現在のスライドをその場で複製）
+	function duplicateSlide(index: number) {
+		const slide = presentation.slides[index];
+		const newSlide: SlideData = {
+			...JSON.parse(JSON.stringify(slide)),
+			id: generateSlideId(),
+			name: `${slide.name} (コピー)`,
+			elements: slide.elements.map(elem => ({
+				...elem,
+				id: generateElementId()
+			}))
+		};
+		const newSlides = [
+			...presentation.slides.slice(0, index + 1),
+			newSlide,
+			...presentation.slides.slice(index + 1)
+		];
+		presentation = { ...presentation, slides: newSlides };
+		currentSlideIndex = index + 1;
+		markAsChanged();
+	}
+
 	// スライドの更新
 	function updateSlide(slideData: SlideData) {
 		const newSlides = presentation.slides.map((slide, i) =>
@@ -1310,15 +1373,27 @@ ${isSatomata ? `
 		<div class="w-40 flex flex-col border-r border-gray-700 bg-gray-850 flex-shrink-0">
 			<div class="px-3 py-2 bg-gray-800 border-b border-gray-700 flex items-center justify-between">
 				<span class="text-xs font-semibold text-gray-300">スライド</span>
-				<button
-					onclick={addSlide}
-					class="text-orange-400 hover:text-orange-300 p-1"
-					title="スライドを追加"
-				>
-					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-					</svg>
-				</button>
+				<div class="flex items-center gap-1">
+					<button
+						onclick={pasteSlide}
+						class="text-blue-400 hover:text-blue-300 p-1 {copiedSlide ? '' : 'opacity-30 cursor-not-allowed'}"
+						title="スライドをペースト (現在の後に挿入)"
+						disabled={!copiedSlide}
+					>
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+						</svg>
+					</button>
+					<button
+						onclick={addSlide}
+						class="text-orange-400 hover:text-orange-300 p-1"
+						title="スライドを追加"
+					>
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+						</svg>
+					</button>
+				</div>
 			</div>
 			<div class="flex-1 overflow-y-auto p-2 space-y-2">
 				{#each presentation.slides as slide, i (slide.id)}
@@ -1336,17 +1411,41 @@ ${isSatomata ? `
 								{i + 1}
 							</div>
 						</button>
-						{#if presentation.slides.length > 1}
+						<!-- ホバー時に表示するボタン群 -->
+						<div class="absolute top-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+							<!-- コピー -->
 							<button
-								onclick={() => deleteSlide(i)}
-								class="absolute top-1 right-1 p-1 bg-red-600 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-								title="削除"
+								onclick={(e) => { e.stopPropagation(); copySlide(i); }}
+								class="p-1 bg-blue-600 hover:bg-blue-500 rounded"
+								title="コピー"
 							>
 								<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
 								</svg>
 							</button>
-						{/if}
+							<!-- 複製 -->
+							<button
+								onclick={(e) => { e.stopPropagation(); duplicateSlide(i); }}
+								class="p-1 bg-green-600 hover:bg-green-500 rounded"
+								title="複製"
+							>
+								<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+								</svg>
+							</button>
+							<!-- 削除 -->
+							{#if presentation.slides.length > 1}
+								<button
+									onclick={(e) => { e.stopPropagation(); deleteSlide(i); }}
+									class="p-1 bg-red-600 hover:bg-red-500 rounded"
+									title="削除"
+								>
+									<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+									</svg>
+								</button>
+							{/if}
+						</div>
 					</div>
 				{/each}
 			</div>

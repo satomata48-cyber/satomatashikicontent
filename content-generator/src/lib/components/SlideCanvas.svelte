@@ -22,6 +22,9 @@
 	let selectedNode: Konva.Node | null = null;
 	let currentSlideId: string = '';
 
+	// コピー＆ペースト用クリップボード
+	let clipboardElement: SlideElement | null = null;
+
 	const SLIDE_WIDTH = 1280;
 	const SLIDE_HEIGHT = 720;
 	const SNAP_THRESHOLD = 10; // スナップする距離（ピクセル）
@@ -929,6 +932,55 @@
 		layer?.batchDraw();
 	}
 
+	// 選択中の要素をコピー
+	export function copySelectedElement(): SlideElement | null {
+		if (!selectedNode) return null;
+		const id = selectedNode.id();
+		const elem = slideData.elements.find((e) => e.id === id);
+		if (elem) {
+			clipboardElement = JSON.parse(JSON.stringify(elem));
+			return clipboardElement;
+		}
+		return null;
+	}
+
+	// クリップボードから要素をペースト
+	export function pasteElement(): SlideElement | null {
+		if (!clipboardElement) return null;
+		// 新しいIDを生成し、位置を少しずらす
+		const newElement: SlideElement = {
+			...JSON.parse(JSON.stringify(clipboardElement)),
+			id: generateElementId(),
+			x: (clipboardElement.x || 0) + 20,
+			y: (clipboardElement.y || 0) + 20
+		};
+		addElement(newElement);
+		return newElement;
+	}
+
+	// 選択中の要素を複製
+	export function duplicateSelectedElement(): SlideElement | null {
+		if (!selectedNode) return null;
+		const id = selectedNode.id();
+		const elem = slideData.elements.find((e) => e.id === id);
+		if (elem) {
+			const newElement: SlideElement = {
+				...JSON.parse(JSON.stringify(elem)),
+				id: generateElementId(),
+				x: (elem.x || 0) + 20,
+				y: (elem.y || 0) + 20
+			};
+			addElement(newElement);
+			return newElement;
+		}
+		return null;
+	}
+
+	// クリップボードに要素があるか確認
+	export function hasClipboard(): boolean {
+		return clipboardElement !== null;
+	}
+
 	// スライドを画像としてエクスポート（PNG形式）
 	export function toDataURL(pixelRatio: number = 2): string | null {
 		if (!stage || !layer) return null;
@@ -1112,6 +1164,47 @@
 		window.addEventListener('resize', handleResize);
 		return () => {
 			window.removeEventListener('resize', handleResize);
+		};
+	});
+
+	// キーボードショートカット
+	function handleKeyDown(event: KeyboardEvent) {
+		// テキスト入力中は無視
+		if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+			return;
+		}
+
+		// Ctrl/Cmd + C: コピー
+		if ((event.ctrlKey || event.metaKey) && event.key === 'c' && selectedNode) {
+			event.preventDefault();
+			copySelectedElement();
+		}
+
+		// Ctrl/Cmd + V: ペースト
+		if ((event.ctrlKey || event.metaKey) && event.key === 'v' && clipboardElement) {
+			event.preventDefault();
+			pasteElement();
+		}
+
+		// Ctrl/Cmd + D: 複製
+		if ((event.ctrlKey || event.metaKey) && event.key === 'd' && selectedNode) {
+			event.preventDefault();
+			duplicateSelectedElement();
+		}
+
+		// Delete/Backspace: 削除
+		if ((event.key === 'Delete' || event.key === 'Backspace') && selectedNode) {
+			event.preventDefault();
+			deleteSelectedElement();
+		}
+	}
+
+	onMount(() => {
+		if (editable) {
+			window.addEventListener('keydown', handleKeyDown);
+		}
+		return () => {
+			window.removeEventListener('keydown', handleKeyDown);
 		};
 	});
 </script>

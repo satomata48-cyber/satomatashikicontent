@@ -33,6 +33,14 @@
 	let currentFileName = $state('');
 	let currentFilePath = $state('');
 
+	// フォルダ選択状態
+	let hasFolderSelected = $state(false);
+
+	$effect(() => {
+		// 初期化時にフォルダ選択状態を確認
+		hasFolderSelected = !!getLastDirectoryHandle();
+	});
+
 	// エディタモード: 'code' | 'visual'
 	let editorMode = $state<'code' | 'visual'>('code');
 
@@ -284,7 +292,14 @@ ${selectedText}
 
 	// HTMLファイルとして保存
 	async function saveToProject() {
-		if (!generatedHtml || !project) return;
+		if (!generatedHtml) {
+			errorMessage = '保存するHTMLがありません。先にHTMLを生成してください。';
+			return;
+		}
+		if (!project) {
+			errorMessage = 'プロジェクト情報が取得できません。';
+			return;
+		}
 
 		// ビジュアルモードの場合は先に同期
 		if (editorMode === 'visual') {
@@ -298,22 +313,28 @@ ${selectedText}
 		try {
 			// フォルダハンドルがない場合は、フォルダ選択ダイアログを表示
 			if (!getLastDirectoryHandle()) {
+				console.log('saveToProject: No folder handle, showing picker');
 				const folderResult = await selectFolder();
 				if (!folderResult.success) {
 					if (folderResult.error !== 'キャンセルされました') {
 						errorMessage = folderResult.error || '保存先フォルダを選択してください';
+					} else {
+						errorMessage = 'フォルダ選択がキャンセルされました。';
 					}
 					isSaving = false;
 					return;
 				}
+				// フォルダ選択状態を更新
+				hasFolderSelected = true;
 				// プロジェクトのフォルダパスを更新
 				if (folderResult.path) {
 					projectStore.updateProject(projectId, { folderPath: folderResult.path });
 				}
 			}
 
+			console.log('saveToProject: Folder handle exists, saving file');
 			// タイトルを取得: 入力値 > HTMLから抽出 > チャットから > 無題
-		const title = contentTitle.trim() || extractTitleFromHtml(generatedHtml) || chatMessages.find(m => m.role === 'user')?.content.substring(0, 30) || '無題';
+			const title = contentTitle.trim() || extractTitleFromHtml(generatedHtml) || chatMessages.find(m => m.role === 'user')?.content.substring(0, 30) || '無題';
 			const folderPath = project.folderPath || getContentTypeFolder(contentType);
 
 			const result = await saveHtmlFile(folderPath, title, generatedHtml);
@@ -434,6 +455,29 @@ ${selectedText}
 				{#if isTauri()}
 					<span class="text-xs text-purple-400">Tauri</span>
 				{/if}
+				<!-- フォルダ選択状態 -->
+				<button
+					onclick={async () => {
+						const result = await selectFolder();
+						if (result.success) {
+							hasFolderSelected = true;
+							if (result.path && project) {
+								projectStore.updateProject(projectId, { folderPath: result.path });
+							}
+							successMessage = `📁 ${result.path} を選択しました`;
+						}
+					}}
+					class="flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors {hasFolderSelected ? 'bg-green-600/20 border border-green-500 text-green-400' : 'bg-yellow-600/20 border border-yellow-500 text-yellow-400 hover:bg-yellow-600/30'}"
+				>
+					<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+					</svg>
+					{#if hasFolderSelected}
+						{getLastDirectoryHandle()?.name || 'フォルダ選択済み'}
+					{:else}
+						フォルダを選択
+					{/if}
+				</button>
 				<!-- モデル選択 -->
 				<select
 					bind:value={selectedModel}
@@ -575,6 +619,29 @@ ${selectedText}
 
 					<!-- Actions -->
 					<div class="flex items-center gap-2">
+						<button
+							onclick={async () => {
+								try {
+									const text = await navigator.clipboard.readText();
+									if (text && (text.includes('<') || text.includes('>'))) {
+										generatedHtml = text;
+										successMessage = '📋 クリップボードからHTMLを貼り付けました';
+										chatMessages = [...chatMessages, { role: 'assistant', content: '📋 HTMLを貼り付けました。編集できます。' }];
+									} else {
+										errorMessage = 'クリップボードにHTMLが見つかりません';
+									}
+								} catch (e) {
+									errorMessage = 'クリップボードへのアクセスが拒否されました';
+								}
+							}}
+							class="text-xs text-gray-500 hover:text-gray-300 flex items-center gap-1"
+							title="クリップボードからHTMLを貼り付け"
+						>
+							<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+							</svg>
+							貼付
+						</button>
 						<button onclick={loadFromFile} class="text-xs text-gray-500 hover:text-gray-300 flex items-center gap-1">
 							<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
@@ -679,14 +746,51 @@ ${selectedText}
 						</div>
 					{/if}
 				{:else}
-					<div class="h-full flex items-center justify-center text-gray-500 bg-gray-950">
-						<div class="text-center">
+					<div class="h-full flex items-center justify-center text-gray-500 bg-gray-950 p-4">
+						<div class="text-center max-w-md">
 							<svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
 							</svg>
-							<p class="text-sm">チャットで構成を相談後</p>
-							<p class="text-sm">「HTML生成」でコードを作成</p>
-							<p class="text-xs text-gray-600 mt-2">または「読込」でファイルを開く</p>
+							<p class="text-sm mb-4">HTMLコンテンツを作成・編集</p>
+
+							<div class="space-y-2">
+								<!-- 直接HTMLを入力 -->
+								<button
+									onclick={async () => {
+										try {
+											const text = await navigator.clipboard.readText();
+											if (text && (text.includes('<') || text.includes('>'))) {
+												generatedHtml = text;
+												successMessage = '📋 クリップボードからHTMLを貼り付けました';
+											} else {
+												errorMessage = 'クリップボードにHTMLが見つかりません';
+											}
+										} catch (e) {
+											errorMessage = 'クリップボードへのアクセスが拒否されました';
+										}
+									}}
+									class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm flex items-center justify-center gap-2"
+								>
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+									</svg>
+									クリップボードから貼り付け
+								</button>
+
+								<button
+									onclick={loadFromFile}
+									class="w-full px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm flex items-center justify-center gap-2"
+								>
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+									</svg>
+									ファイルを読み込み
+								</button>
+							</div>
+
+							<p class="text-xs text-gray-600 mt-4">
+								または左のチャットで相談してHTMLを生成
+							</p>
 						</div>
 					</div>
 				{/if}

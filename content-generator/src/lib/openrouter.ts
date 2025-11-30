@@ -123,15 +123,9 @@ export const AVAILABLE_MODELS = [
 // 利用可能な画像生成モデル
 export const IMAGE_GENERATION_MODELS = [
 	{
-		id: 'google/gemini-2.5-flash-image-preview',
+		id: 'google/gemini-2.5-flash-image',
 		name: 'Gemini 2.5 Flash Image',
-		description: '高速・低コスト（約$0.039/枚）',
-		costPerImage: 0.039
-	},
-	{
-		id: 'black-forest-labs/flux.2-pro',
-		name: 'FLUX.2 Pro',
-		description: '高品質（約$0.03/MP）',
-		costPerImage: 0.03
+		description: '高速・低コスト（推奨）',
+		costPerImage: 0.02
 	},
 ];

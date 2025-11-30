@@ -1,13 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { projectStore, allTags, selectedTags, filteredProjects, type Project, setDataFolderHandle, getDataFolderHandle, restoreDataFolderHandle } from '$lib/stores';
+	import { projectStore, allTags, selectedTags, filteredProjects, type Project, setDataFolderHandle, getDataFolderHandle } from '$lib/stores';
 
 	let showCreateProject = $state(false);
 	let errorMessage = $state('');
 	let isDataFolderSet = $state(false);
 	let dataFolderName = $state('');
 	let isLoadingData = $state(false);
-	let isInitializing = $state(true);
 
 	// プロジェクト作成フォーム
 	let projectName = $state('');
@@ -24,24 +23,19 @@
 	allTags.subscribe(value => tags = value);
 	selectedTags.subscribe(value => activeTags = value);
 
-	onMount(async () => {
-		// 起動時にフォルダハンドルを自動復元
-		try {
-			const restored = await restoreDataFolderHandle();
-			if (restored) {
-				const handle = getDataFolderHandle();
-				if (handle) {
-					isDataFolderSet = true;
-					dataFolderName = handle.name;
-					// ファイルからプロジェクトを読み込み
-					await projectStore.loadFromFile();
-				}
+	onMount(() => {
+		// フォルダハンドルの状態を確認（復元は+layout.svelteで行われる）
+		const checkFolder = () => {
+			const handle = getDataFolderHandle();
+			if (handle) {
+				isDataFolderSet = true;
+				dataFolderName = handle.name;
 			}
-		} catch (e) {
-			console.error('Failed to restore data folder:', e);
-		} finally {
-			isInitializing = false;
-		}
+		};
+		checkFolder();
+		// 少し遅延して再チェック（復元が完了していない場合のため）
+		const timer = setTimeout(checkFolder, 500);
+		return () => clearTimeout(timer);
 	});
 
 	// データフォルダを選択
@@ -138,16 +132,6 @@
 </script>
 
 <div class="min-h-screen bg-gray-900 text-white">
-	<!-- 初期化中のローディング表示 -->
-	{#if isInitializing}
-		<div class="fixed inset-0 bg-gray-900 flex items-center justify-center z-50">
-			<div class="text-center">
-				<span class="animate-spin w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full inline-block mb-4"></span>
-				<p class="text-gray-400">データを読み込み中...</p>
-			</div>
-		</div>
-	{/if}
-
 	<!-- Header -->
 	<header class="bg-gray-800 border-b border-gray-700 px-6 py-4">
 		<div class="flex items-center justify-between">

@@ -41,6 +41,7 @@ export async function saveHtmlFile(
 
 	// フォルダハンドルが必須
 	if (!lastDirectoryHandle) {
+		console.log('saveHtmlFile: No folder handle');
 		return {
 			success: false,
 			error: '保存先フォルダを選択してください。'
@@ -48,19 +49,41 @@ export async function saveHtmlFile(
 	}
 
 	try {
+		// 権限を確認・リクエスト
+		// @ts-ignore - File System Access API
+		const permission = await lastDirectoryHandle.queryPermission({ mode: 'readwrite' });
+		console.log('saveHtmlFile: Permission status:', permission);
+
+		if (permission !== 'granted') {
+			// @ts-ignore - File System Access API
+			const requestResult = await lastDirectoryHandle.requestPermission({ mode: 'readwrite' });
+			console.log('saveHtmlFile: Permission request result:', requestResult);
+
+			if (requestResult !== 'granted') {
+				return {
+					success: false,
+					error: 'フォルダへの書き込み権限が拒否されました。再度フォルダを選択してください。'
+				};
+			}
+		}
+
 		// フォルダ内にファイルを作成
+		console.log('saveHtmlFile: Creating file:', fullFileName, 'in folder:', lastDirectoryHandle.name);
 		const fileHandle = await lastDirectoryHandle.getFileHandle(fullFileName, { create: true });
 		const writable = await fileHandle.createWritable();
 		await writable.write(content);
 		await writable.close();
 
+		console.log('saveHtmlFile: File saved successfully');
 		return { success: true, filePath: `${lastDirectoryHandle.name}/${fullFileName}` };
 	} catch (e) {
 		console.error('File System Access API save failed:', e);
 		if (e instanceof Error && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) {
+			// 権限エラーの場合、ハンドルをクリアして再選択を促す
+			lastDirectoryHandle = null;
 			return {
 				success: false,
-				error: 'フォルダへのアクセス権限がありません。フォルダを再選択してください。'
+				error: 'フォルダへのアクセス権限がありません。「フォルダを選択」から再選択してください。'
 			};
 		}
 		return {
@@ -491,4 +514,370 @@ export async function saveImagesAsZip(
 	}
 
 	return { success: false, error: '画像の保存に失敗しました' };
+}
+
+// プロジェクトのスライドデータファイルを読み込み
+export async function loadSlideDataForProject(projectId: string): Promise<{
+	success: boolean;
+	data?: unknown;
+	error?: string;
+}> {
+	if (!lastDirectoryHandle) {
+		return { success: false, error: 'フォルダが選択されていません' };
+	}
+
+	try {
+		const fileName = getSlideDataFileName(projectId);
+
+		// フォルダ内のファイルを探す
+		for await (const entry of lastDirectoryHandle.values()) {
+			if (entry.kind === 'file' && entry.name === fileName) {
+				const file = await entry.getFile();
+				const content = await file.text();
+				const data = JSON.parse(content);
+				return { success: true, data };
+			}
+		}
+
+		return { success: false, error: 'スライドデータファイルが見つかりません' };
+	} catch (e) {
+		console.error('Failed to load slide data:', e);
+		return { success: false, error: e instanceof Error ? e.message : 'スライドデータの読み込みに失敗しました' };
+	}
+}
+
+// ===== 動画データ保存・読み込み機能 =====
+
+// 動画データファイル名を取得
+export function getVideoDataFileName(projectId: string): string {
+	return `video-data-${projectId}.json`;
+}
+
+// videoサブフォルダを取得または作成
+async function getVideoSubfolder(): Promise<FileSystemDirectoryHandle | null> {
+	if (!lastDirectoryHandle) return null;
+
+	try {
+		const videoFolder = await lastDirectoryHandle.getDirectoryHandle('video', { create: true });
+		return videoFolder;
+	} catch (e) {
+		console.error('Failed to get/create video folder:', e);
+		return null;
+	}
+}
+
+// 動画プロジェクトデータの型
+export interface VideoProjectSaveData {
+	sections: Array<{
+		id: string;
+		heading: string;
+		headingLevel: number;
+		textContent: string;
+		script: string;
+		selectedSlideId?: string;
+		visualType: string;
+		audioFileName?: string;
+		imageFileName?: string;
+	}>;
+	sourceHtmlFileName?: string;
+	speakerId: number;
+	updatedAt: string;
+	// スライドデータも保存
+	slidePresentation?: {
+		id: string;
+		name: string;
+		slides: Array<{
+			id: string;
+			name: string;
+			elements: unknown[];
+			background: unknown;
+		}>;
+	};
+}
+
+// 動画プロジェクトデータを保存（JSON形式）
+export async function saveVideoProjectData(
+	projectId: string,
+	data: VideoProjectSaveData
+): Promise<{ success: boolean; filePath?: string; error?: string }> {
+	const videoFolder = await getVideoSubfolder();
+	if (!videoFolder) {
+		return { success: false, error: 'videoフォルダの作成に失敗しました' };
+	}
+
+	try {
+		const fileName = getVideoDataFileName(projectId);
+		const content = JSON.stringify(data, null, 2);
+
+		const fileHandle = await videoFolder.getFileHandle(fileName, { create: true });
+		const writable = await fileHandle.createWritable();
+		await writable.write(content);
+		await writable.close();
+
+		return { success: true, filePath: `video/${fileName}` };
+	} catch (e) {
+		console.error('Failed to save video project data:', e);
+		return { success: false, error: e instanceof Error ? e.message : '動画データの保存に失敗しました' };
+	}
+}
+
+// 動画プロジェクトデータを読み込み
+export async function loadVideoProjectData(projectId: string): Promise<{
+	success: boolean;
+	data?: VideoProjectSaveData;
+	error?: string;
+}> {
+	const videoFolder = await getVideoSubfolder();
+	if (!videoFolder) {
+		return { success: false, error: 'videoフォルダが見つかりません' };
+	}
+
+	try {
+		const fileName = getVideoDataFileName(projectId);
+		const fileHandle = await videoFolder.getFileHandle(fileName);
+		const file = await fileHandle.getFile();
+		const content = await file.text();
+		const data = JSON.parse(content);
+
+		return { success: true, data };
+	} catch (e) {
+		if (e instanceof Error && e.name === 'NotFoundError') {
+			return { success: false, error: '動画データファイルが見つかりません' };
+		}
+		console.error('Failed to load video project data:', e);
+		return { success: false, error: e instanceof Error ? e.message : '動画データの読み込みに失敗しました' };
+	}
+}
+
+// 音声ファイルを保存（WAV形式）
+export async function saveVideoAudioFile(
+	projectId: string,
+	sectionId: string,
+	audioData: ArrayBuffer
+): Promise<{ success: boolean; fileName?: string; error?: string }> {
+	const videoFolder = await getVideoSubfolder();
+	if (!videoFolder) {
+		return { success: false, error: 'videoフォルダの作成に失敗しました' };
+	}
+
+	try {
+		const fileName = `audio-${projectId}-${sectionId}.wav`;
+		const blob = new Blob([audioData], { type: 'audio/wav' });
+
+		const fileHandle = await videoFolder.getFileHandle(fileName, { create: true });
+		const writable = await fileHandle.createWritable();
+		await writable.write(blob);
+		await writable.close();
+
+		return { success: true, fileName };
+	} catch (e) {
+		console.error('Failed to save audio file:', e);
+		return { success: false, error: e instanceof Error ? e.message : '音声ファイルの保存に失敗しました' };
+	}
+}
+
+// 音声ファイルを読み込み
+export async function loadVideoAudioFile(fileName: string): Promise<{
+	success: boolean;
+	audioData?: ArrayBuffer;
+	error?: string;
+}> {
+	const videoFolder = await getVideoSubfolder();
+	if (!videoFolder) {
+		return { success: false, error: 'videoフォルダが見つかりません' };
+	}
+
+	try {
+		const fileHandle = await videoFolder.getFileHandle(fileName);
+		const file = await fileHandle.getFile();
+		const audioData = await file.arrayBuffer();
+
+		return { success: true, audioData };
+	} catch (e) {
+		if (e instanceof Error && e.name === 'NotFoundError') {
+			return { success: false, error: '音声ファイルが見つかりません' };
+		}
+		console.error('Failed to load audio file:', e);
+		return { success: false, error: e instanceof Error ? e.message : '音声ファイルの読み込みに失敗しました' };
+	}
+}
+
+// AI生成画像を保存（Base64またはURL）
+export async function saveVideoImageFile(
+	projectId: string,
+	sectionId: string,
+	imageData: string // Base64 data URL or URL
+): Promise<{ success: boolean; fileName?: string; error?: string }> {
+	const videoFolder = await getVideoSubfolder();
+	if (!videoFolder) {
+		return { success: false, error: 'videoフォルダの作成に失敗しました' };
+	}
+
+	try {
+		const fileName = `image-${projectId}-${sectionId}.png`;
+		let blob: Blob;
+
+		// Base64 data URLの場合
+		if (imageData.startsWith('data:')) {
+			const response = await fetch(imageData);
+			blob = await response.blob();
+		} else {
+			// 外部URLの場合（CORSの問題がある可能性）
+			try {
+				const response = await fetch(imageData);
+				blob = await response.blob();
+			} catch {
+				// 外部URL取得に失敗した場合、URLをテキストとして保存
+				const urlBlob = new Blob([imageData], { type: 'text/plain' });
+				const urlFileName = `image-${projectId}-${sectionId}.url`;
+				const fileHandle = await videoFolder.getFileHandle(urlFileName, { create: true });
+				const writable = await fileHandle.createWritable();
+				await writable.write(urlBlob);
+				await writable.close();
+				return { success: true, fileName: urlFileName };
+			}
+		}
+
+		const fileHandle = await videoFolder.getFileHandle(fileName, { create: true });
+		const writable = await fileHandle.createWritable();
+		await writable.write(blob);
+		await writable.close();
+
+		return { success: true, fileName };
+	} catch (e) {
+		console.error('Failed to save image file:', e);
+		return { success: false, error: e instanceof Error ? e.message : '画像ファイルの保存に失敗しました' };
+	}
+}
+
+// 画像ファイルを読み込み（data URL形式で返す）
+export async function loadVideoImageFile(fileName: string): Promise<{
+	success: boolean;
+	imageUrl?: string;
+	error?: string;
+}> {
+	const videoFolder = await getVideoSubfolder();
+	if (!videoFolder) {
+		return { success: false, error: 'videoフォルダが見つかりません' };
+	}
+
+	try {
+		const fileHandle = await videoFolder.getFileHandle(fileName);
+		const file = await fileHandle.getFile();
+
+		// .urlファイルの場合はテキストとして読み込み
+		if (fileName.endsWith('.url')) {
+			const url = await file.text();
+			return { success: true, imageUrl: url };
+		}
+
+		// 画像ファイルの場合はdata URLに変換
+		const arrayBuffer = await file.arrayBuffer();
+		const blob = new Blob([arrayBuffer], { type: 'image/png' });
+		const imageUrl = URL.createObjectURL(blob);
+
+		return { success: true, imageUrl };
+	} catch (e) {
+		if (e instanceof Error && e.name === 'NotFoundError') {
+			return { success: false, error: '画像ファイルが見つかりません' };
+		}
+		console.error('Failed to load image file:', e);
+		return { success: false, error: e instanceof Error ? e.message : '画像ファイルの読み込みに失敗しました' };
+	}
+}
+
+// フォルダを選択してvideoサブフォルダから動画データを読み込み（独立したフォルダ選択）
+export async function selectAndLoadVideoProject(projectId: string): Promise<{
+	success: boolean;
+	folderName?: string;
+	data?: VideoProjectSaveData;
+	audioFiles?: Map<string, ArrayBuffer>;
+	imageFiles?: Map<string, string>;
+	error?: string;
+}> {
+	// @ts-ignore - File System Access API
+	if (!('showDirectoryPicker' in window)) {
+		return { success: false, error: 'File System Access APIに対応していないブラウザです' };
+	}
+
+	try {
+		// フォルダを選択
+		// @ts-ignore
+		const selectedFolder: FileSystemDirectoryHandle = await window.showDirectoryPicker({
+			mode: 'read'
+		});
+
+		// videoサブフォルダを取得
+		let videoFolder: FileSystemDirectoryHandle;
+		try {
+			videoFolder = await selectedFolder.getDirectoryHandle('video');
+		} catch (e) {
+			return { success: false, error: '選択したフォルダにvideoサブフォルダがありません' };
+		}
+
+		// プロジェクトデータファイルを読み込み
+		const fileName = getVideoDataFileName(projectId);
+		let data: VideoProjectSaveData;
+
+		try {
+			const fileHandle = await videoFolder.getFileHandle(fileName);
+			const file = await fileHandle.getFile();
+			const content = await file.text();
+			data = JSON.parse(content);
+		} catch (e) {
+			return { success: false, error: `動画データファイル(${fileName})が見つかりません` };
+		}
+
+		// 音声ファイルを読み込み
+		const audioFiles = new Map<string, ArrayBuffer>();
+		for (const section of data.sections) {
+			if (section.audioFileName) {
+				try {
+					const audioHandle = await videoFolder.getFileHandle(section.audioFileName);
+					const audioFile = await audioHandle.getFile();
+					const audioData = await audioFile.arrayBuffer();
+					audioFiles.set(section.audioFileName, audioData);
+				} catch (e) {
+					console.warn(`Audio file not found: ${section.audioFileName}`);
+				}
+			}
+		}
+
+		// 画像ファイルを読み込み
+		const imageFiles = new Map<string, string>();
+		for (const section of data.sections) {
+			if (section.imageFileName) {
+				try {
+					const imageHandle = await videoFolder.getFileHandle(section.imageFileName);
+					const imageFile = await imageHandle.getFile();
+
+					if (section.imageFileName.endsWith('.url')) {
+						const url = await imageFile.text();
+						imageFiles.set(section.imageFileName, url);
+					} else {
+						const arrayBuffer = await imageFile.arrayBuffer();
+						const blob = new Blob([arrayBuffer], { type: 'image/png' });
+						const imageUrl = URL.createObjectURL(blob);
+						imageFiles.set(section.imageFileName, imageUrl);
+					}
+				} catch (e) {
+					console.warn(`Image file not found: ${section.imageFileName}`);
+				}
+			}
+		}
+
+		return {
+			success: true,
+			folderName: selectedFolder.name,
+			data,
+			audioFiles,
+			imageFiles
+		};
+	} catch (e) {
+		if (e instanceof Error && e.name === 'AbortError') {
+			return { success: false, error: 'フォルダ選択がキャンセルされました' };
+		}
+		console.error('Failed to select and load video project:', e);
+		return { success: false, error: e instanceof Error ? e.message : '読み込みに失敗しました' };
+	}
 }

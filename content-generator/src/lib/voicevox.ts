@@ -105,6 +105,82 @@ export async function synthesize(query: AudioQuery, speaker: number): Promise<Ar
 	}
 }
 
+// テキストを分割する最大文字数（VOICEVOXの負荷軽減）
+const MAX_TEXT_LENGTH = 500;
+
+// テキストを適切なサイズに分割
+function splitTextForSynthesis(text: string): string[] {
+	if (text.length <= MAX_TEXT_LENGTH) {
+		return [text];
+	}
+
+	const chunks: string[] = [];
+	// 句読点で分割
+	const sentences = text.split(/(?<=[。．！？\n])/);
+	let currentChunk = '';
+
+	for (const sentence of sentences) {
+		if (currentChunk.length + sentence.length > MAX_TEXT_LENGTH) {
+			if (currentChunk) {
+				chunks.push(currentChunk.trim());
+			}
+			// 文自体が長すぎる場合はさらに分割
+			if (sentence.length > MAX_TEXT_LENGTH) {
+				for (let i = 0; i < sentence.length; i += MAX_TEXT_LENGTH) {
+					chunks.push(sentence.slice(i, i + MAX_TEXT_LENGTH));
+				}
+				currentChunk = '';
+			} else {
+				currentChunk = sentence;
+			}
+		} else {
+			currentChunk += sentence;
+		}
+	}
+
+	if (currentChunk.trim()) {
+		chunks.push(currentChunk.trim());
+	}
+
+	return chunks;
+}
+
+// 複数の音声データを結合
+function concatenateAudioBuffers(buffers: ArrayBuffer[]): ArrayBuffer {
+	if (buffers.length === 1) return buffers[0];
+
+	// WAVファイルのヘッダーを除いてデータ部分を結合
+	// 最初のファイルのヘッダー（44バイト）を使用
+	const headerSize = 44;
+	let totalDataSize = 0;
+
+	for (const buffer of buffers) {
+		totalDataSize += buffer.byteLength - headerSize;
+	}
+
+	const result = new ArrayBuffer(headerSize + totalDataSize);
+	const resultView = new Uint8Array(result);
+
+	// ヘッダーをコピー
+	const firstHeader = new Uint8Array(buffers[0], 0, headerSize);
+	resultView.set(firstHeader, 0);
+
+	// データサイズを更新（ヘッダー内のサイズフィールド）
+	const dataView = new DataView(result);
+	dataView.setUint32(4, 36 + totalDataSize, true); // ChunkSize
+	dataView.setUint32(40, totalDataSize, true); // Subchunk2Size
+
+	// データ部分を結合
+	let offset = headerSize;
+	for (const buffer of buffers) {
+		const data = new Uint8Array(buffer, headerSize);
+		resultView.set(data, offset);
+		offset += data.length;
+	}
+
+	return result;
+}
+
 // テキストから直接音声を生成（簡易版）
 export async function textToSpeech(text: string, speaker: number = 3): Promise<{
 	success: boolean;
@@ -112,20 +188,41 @@ export async function textToSpeech(text: string, speaker: number = 3): Promise<{
 	error?: string;
 }> {
 	try {
-		// Step 1: 音声合成クエリを作成
-		const query = await createAudioQuery(text, speaker);
-		if (!query) {
-			return { success: false, error: '音声合成クエリの作成に失敗しました' };
+		// テキストを適切なサイズに分割
+		const chunks = splitTextForSynthesis(text);
+		console.log(`textToSpeech: Processing ${chunks.length} chunk(s), total ${text.length} chars`);
+
+		const audioBuffers: ArrayBuffer[] = [];
+
+		for (let i = 0; i < chunks.length; i++) {
+			const chunk = chunks[i];
+			console.log(`textToSpeech: Chunk ${i + 1}/${chunks.length} (${chunk.length} chars)`);
+
+			// Step 1: 音声合成クエリを作成
+			const query = await createAudioQuery(chunk, speaker);
+			if (!query) {
+				return { success: false, error: `音声合成クエリの作成に失敗しました (チャンク ${i + 1})` };
+			}
+
+			// Step 2: 音声を合成
+			const audio = await synthesize(query, speaker);
+			if (!audio) {
+				return { success: false, error: `音声合成に失敗しました (チャンク ${i + 1})` };
+			}
+
+			audioBuffers.push(audio);
+
+			// VOICEVOXの負荷軽減のため少し待機
+			if (i < chunks.length - 1) {
+				await new Promise(resolve => setTimeout(resolve, 100));
+			}
 		}
 
-		// Step 2: 音声を合成
-		const audio = await synthesize(query, speaker);
-		if (!audio) {
-			return { success: false, error: '音声合成に失敗しました' };
-		}
-
-		return { success: true, audio };
+		// 音声データを結合
+		const combinedAudio = concatenateAudioBuffers(audioBuffers);
+		return { success: true, audio: combinedAudio };
 	} catch (e) {
+		console.error('textToSpeech error:', e);
 		return { success: false, error: e instanceof Error ? e.message : '不明なエラー' };
 	}
 }

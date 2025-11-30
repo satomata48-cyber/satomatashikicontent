@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm create:*)",
+      "Bash(npx sv create:*)",
+      "Bash(npm install)",
+      "Bash(npm install:*)",
+      "Bash(npx tauri init:*)",
+      "Bash(npm run tauri:*)",
+      "Bash(timeout:*)",
+      "Bash(winget install:*)",
+      "Bash(export PATH=\"$HOME/.cargo/bin:$PATH\")",
+      "Bash(rustc:*)",
+      "Bash(cargo build:*)",
+      "Bash(taskkill:*)",
+      "Bash(where:*)",
+      "Bash(npm run dev:*)",
+      "WebFetch(domain:localhost)",
+      "Bash(find:*)",
+      "WebSearch",
+      "WebFetch(domain:openrouter.ai)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

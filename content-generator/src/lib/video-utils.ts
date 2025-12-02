@@ -21,6 +21,7 @@ export interface VideoSection extends Section {
 	// ファイル保存用
 	audioFileName?: string; // 保存された音声ファイル名
 	imageFileName?: string; // 保存された画像ファイル名
+	scriptFileName?: string; // 保存された台本ファイル名
 }
 
 // HTMLを見出しごとに分割

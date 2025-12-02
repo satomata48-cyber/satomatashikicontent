@@ -52,6 +52,16 @@
 		DEFAULT_TEMPLATES,
 		type ScriptTemplate
 	} from '$lib/script-templates';
+	import { saveVideoScriptFile } from '$lib/script-file';
+	import {
+		generateSubtitlesForSection,
+		getWavDuration,
+		splitTextForSubtitles,
+		assignTimesToSentences,
+		type SubtitleEntry,
+		type SubtitleSettings,
+		DEFAULT_SUBTITLE_SETTINGS
+	} from '$lib/subtitle-utils';
 
 	let projectId = $state('');
 	let project = $state<Project | null>(null);
@@ -137,6 +147,89 @@
 	let isLoading = $state(false);
 	let hasUnsavedChanges = $state(false);
 	let lastSavedAt = $state<string | null>(null);
+
+	// 字幕設定
+	let subtitleSettings = $state<SubtitleSettings>({ ...DEFAULT_SUBTITLE_SETTINGS });
+
+	// Video Editor起動
+	let isLaunchingEditor = $state(false);
+
+	// 手動字幕編集
+	// セクションごとのカスタム字幕を保持（nullの場合は自動生成を使用）
+	let customSubtitles = $state<Map<string, string[]>>(new Map());
+
+	// セクションの字幕を取得（カスタムがあればそれを、なければ自動生成）
+	function getSectionSubtitles(sectionId: string, script: string): string[] {
+		if (customSubtitles.has(sectionId)) {
+			return customSubtitles.get(sectionId)!;
+		}
+		return splitTextForSubtitles(script, subtitleSettings);
+	}
+
+	// 字幕を手動モードに切り替え（自動生成から編集可能に）
+	function enableManualSubtitles(sectionId: string, script: string) {
+		const auto = splitTextForSubtitles(script, subtitleSettings);
+		customSubtitles.set(sectionId, [...auto]);
+		customSubtitles = new Map(customSubtitles);
+		hasUnsavedChanges = true;
+	}
+
+	// 自動生成に戻す
+	function resetToAutoSubtitles(sectionId: string) {
+		customSubtitles.delete(sectionId);
+		customSubtitles = new Map(customSubtitles);
+		hasUnsavedChanges = true;
+	}
+
+	// 字幕パートを更新
+	function updateSubtitlePart(sectionId: string, index: number, newText: string) {
+		const parts = customSubtitles.get(sectionId);
+		if (parts) {
+			parts[index] = newText;
+			customSubtitles = new Map(customSubtitles);
+			hasUnsavedChanges = true;
+		}
+	}
+
+	// 字幕パートを追加
+	function addSubtitlePart(sectionId: string, afterIndex: number) {
+		const parts = customSubtitles.get(sectionId);
+		if (parts) {
+			parts.splice(afterIndex + 1, 0, '新しい字幕');
+			customSubtitles = new Map(customSubtitles);
+			hasUnsavedChanges = true;
+		}
+	}
+
+	// 字幕パートを削除
+	function removeSubtitlePart(sectionId: string, index: number) {
+		const parts = customSubtitles.get(sectionId);
+		if (parts && parts.length > 1) {
+			parts.splice(index, 1);
+			customSubtitles = new Map(customSubtitles);
+			hasUnsavedChanges = true;
+		}
+	}
+
+	// 字幕パートを上に移動
+	function moveSubtitleUp(sectionId: string, index: number) {
+		const parts = customSubtitles.get(sectionId);
+		if (parts && index > 0) {
+			[parts[index - 1], parts[index]] = [parts[index], parts[index - 1]];
+			customSubtitles = new Map(customSubtitles);
+			hasUnsavedChanges = true;
+		}
+	}
+
+	// 字幕パートを下に移動
+	function moveSubtitleDown(sectionId: string, index: number) {
+		const parts = customSubtitles.get(sectionId);
+		if (parts && index < parts.length - 1) {
+			[parts[index], parts[index + 1]] = [parts[index + 1], parts[index]];
+			customSubtitles = new Map(customSubtitles);
+			hasUnsavedChanges = true;
+		}
+	}
 
 	onMount(async () => {
 		isBrowser = true;
@@ -744,21 +837,74 @@
 						sections[i] = { ...section, imageFileName: imageResult.fileName };
 					}
 				}
+
+				// 台本テキストファイルを保存
+				if (section.script) {
+					const scriptResult = await saveVideoScriptFile(projectId, section.id, section.script, section.heading);
+					if (scriptResult.success && scriptResult.fileName) {
+						sections[i] = { ...sections[i], scriptFileName: scriptResult.fileName };
+					}
+				}
 			}
 
-			// プロジェクトデータを保存（スライドデータも含める）
+			// 字幕データを生成（設定を適用、手動編集があればそれを使用）
+			const allSubtitles: SubtitleEntry[] = [];
+			let currentOffset = 0;
+
+			for (const section of sections) {
+				if (section.script && section.audioData) {
+					const rawDuration = getWavDuration(section.audioData);
+					const adjustedDuration = rawDuration / subtitleSettings.playbackRate;
+
+					// 手動編集された字幕があるかチェック
+					if (customSubtitles.has(section.id)) {
+						// 手動編集されたテキストを使用して時間を割り当て
+						const customTexts = customSubtitles.get(section.id)!;
+						const entries = assignTimesToSentences(
+							customTexts,
+							rawDuration,
+							section.id,
+							subtitleSettings
+						);
+						// オフセットを適用
+						entries.forEach(entry => {
+							entry.startTime += currentOffset;
+							entry.endTime += currentOffset;
+						});
+						allSubtitles.push(...entries);
+					} else {
+						// 自動生成を使用
+						const { entries } = generateSubtitlesForSection(
+							section.id,
+							section.script,
+							section.audioData,
+							currentOffset,
+							subtitleSettings
+						);
+						allSubtitles.push(...entries);
+					}
+					currentOffset += adjustedDuration;
+				}
+			}
+
+			// プロジェクトデータを保存（スライドデータ・字幕データも含める）
 			const saveData = {
-				sections: sections.map(s => ({
-					id: s.id,
-					heading: s.heading,
-					headingLevel: s.headingLevel,
-					textContent: s.textContent,
-					script: s.script,
-					selectedSlideId: s.selectedSlideId,
-					visualType: s.visualType,
-					audioFileName: s.audioFileName,
-					imageFileName: s.imageFileName
-				})),
+				sections: sections.map(s => {
+					const duration = s.audioData ? getWavDuration(s.audioData) : undefined;
+					return {
+						id: s.id,
+						heading: s.heading,
+						headingLevel: s.headingLevel,
+						textContent: s.textContent,
+						script: s.script,
+						selectedSlideId: s.selectedSlideId,
+						visualType: s.visualType,
+						audioFileName: s.audioFileName,
+						imageFileName: s.imageFileName,
+						scriptFileName: s.scriptFileName,
+						duration
+					};
+				}),
 				sourceHtmlFileName: selectedHtmlFileName || selectedContent?.title,
 				speakerId: selectedSpeakerId,
 				updatedAt: new Date().toISOString(),
@@ -772,7 +918,12 @@
 						elements: slide.elements,
 						background: slide.background
 					}))
-				} : undefined
+				} : undefined,
+				// 字幕データと設定
+				subtitles: allSubtitles,
+				subtitleSettings: subtitleSettings,
+				// 手動編集された字幕のマッピング（復元用）
+				customSubtitleTexts: Object.fromEntries(customSubtitles)
 			};
 
 			const result = await saveVideoProjectData(projectId, saveData);
@@ -807,6 +958,18 @@
 
 				// スピーカーIDを復元
 				selectedSpeakerId = data.speakerId || 3;
+
+				// 字幕設定を復元
+				if (data.subtitleSettings) {
+					subtitleSettings = { ...DEFAULT_SUBTITLE_SETTINGS, ...data.subtitleSettings };
+				}
+
+				// 手動編集された字幕を復元
+				if (data.customSubtitleTexts) {
+					customSubtitles = new Map(Object.entries(data.customSubtitleTexts));
+				} else {
+					customSubtitles = new Map();
+				}
 
 				// セクションデータを復元
 				const loadedSections: VideoSection[] = [];
@@ -844,6 +1007,9 @@
 				lastSavedAt = data.updatedAt ? new Date(data.updatedAt).toLocaleString('ja-JP') : null;
 				hasUnsavedChanges = false;
 
+				// フォルダが選択されたことを記録（保存ボタンを有効にするため）
+				hasFolderSelected = true;
+
 				// スライドデータを復元
 				if (data.slidePresentation) {
 					slidePresentation = data.slidePresentation as SlidePresentation;
@@ -869,6 +1035,34 @@
 	// セクション変更時に未保存フラグを立てる
 	function markAsUnsaved() {
 		hasUnsavedChanges = true;
+	}
+
+	// Video Editorを起動
+	async function launchVideoEditor() {
+		isLaunchingEditor = true;
+		errorMessage = '';
+		successMessage = '';
+
+		try {
+			// Satomatashiki Video Editorのショートカットパス
+			const shortcutPath = 'C:\\Users\\lipto\\Desktop\\satomatashikicontent\\Satoamtashikivideoeditor.lnk';
+
+			// カスタムプロトコルまたはコマンドで起動を試みる
+			// ms-windows-store: プロトコルのように、カスタムプロトコルが使えれば最適だが、
+			// 通常のWebアプリからはローカルアプリを直接起動できない
+
+			// 代わりに、ユーザーに情報を提供
+			const runCommand = `start "" "${shortcutPath}"`;
+
+			// クリップボードにコマンドをコピー
+			await navigator.clipboard.writeText(runCommand);
+
+			successMessage = `起動コマンドをクリップボードにコピーしました。\nターミナルまたはWin+Rで実行してください:\n${runCommand}`;
+		} catch (e) {
+			errorMessage = 'クリップボードへのコピーに失敗しました。手動でVideo Editorを起動してください。';
+		} finally {
+			isLaunchingEditor = false;
+		}
 	}
 </script>
 
@@ -927,6 +1121,25 @@
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
 						</svg>
 						保存
+					{/if}
+				</button>
+
+				<!-- Video Editor起動ボタン -->
+				<button
+					onclick={launchVideoEditor}
+					disabled={isLaunchingEditor}
+					class="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 rounded text-xs font-medium transition-colors"
+					title="Satomatashiki Video Editorを起動"
+				>
+					{#if isLaunchingEditor}
+						<span class="animate-spin w-3 h-3 border-2 border-white border-t-transparent rounded-full"></span>
+						起動中...
+					{:else}
+						<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+						</svg>
+						Editor起動
 					{/if}
 				</button>
 
@@ -1476,6 +1689,122 @@
 										{/if}
 									</div>
 
+									<!-- 字幕プレビュー・編集 -->
+									{#if section.script}
+										{@const isManualMode = customSubtitles.has(section.id)}
+										{@const subtitleParts = getSectionSubtitles(section.id, section.script)}
+										<div class="border-t border-gray-700 pt-3 mt-3">
+											<div class="flex items-center justify-between mb-2">
+												<div class="flex items-center gap-2">
+													<span class="text-xs text-gray-500">字幕（{subtitleParts.length}分割）</span>
+													{#if isManualMode}
+														<span class="text-[10px] px-1.5 py-0.5 bg-yellow-600/30 text-yellow-400 rounded">手動編集中</span>
+													{:else}
+														<span class="text-[10px] px-1.5 py-0.5 bg-blue-600/30 text-blue-400 rounded">自動</span>
+													{/if}
+												</div>
+												<div class="flex items-center gap-2">
+													{#if isManualMode}
+														<button
+															onclick={() => resetToAutoSubtitles(section.id)}
+															class="text-[10px] text-gray-400 hover:text-white"
+														>
+															自動に戻す
+														</button>
+													{:else}
+														<button
+															onclick={() => enableManualSubtitles(section.id, section.script)}
+															class="text-[10px] text-blue-400 hover:text-blue-300"
+														>
+															手動編集
+														</button>
+													{/if}
+												</div>
+											</div>
+
+											{#if isManualMode}
+												<!-- 手動編集モード -->
+												<div class="space-y-1">
+													{#each subtitleParts as part, partIndex}
+														<div class="flex items-center gap-1 group">
+															<span class="text-[10px] text-gray-500 w-5 text-right">{partIndex + 1}.</span>
+															<input
+																type="text"
+																value={part}
+																onchange={(e) => updateSubtitlePart(section.id, partIndex, (e.target as HTMLInputElement).value)}
+																class="flex-1 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-yellow-500"
+															/>
+															<span class="text-[10px] text-gray-500 w-8">{part.length}字</span>
+															<div class="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+																<button
+																	onclick={() => moveSubtitleUp(section.id, partIndex)}
+																	disabled={partIndex === 0}
+																	class="p-1 text-gray-400 hover:text-white disabled:opacity-30"
+																	title="上に移動"
+																>
+																	<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+																		<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" />
+																	</svg>
+																</button>
+																<button
+																	onclick={() => moveSubtitleDown(section.id, partIndex)}
+																	disabled={partIndex === subtitleParts.length - 1}
+																	class="p-1 text-gray-400 hover:text-white disabled:opacity-30"
+																	title="下に移動"
+																>
+																	<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+																		<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+																	</svg>
+																</button>
+																<button
+																	onclick={() => addSubtitlePart(section.id, partIndex)}
+																	class="p-1 text-green-400 hover:text-green-300"
+																	title="下に追加"
+																>
+																	<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+																		<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+																	</svg>
+																</button>
+																<button
+																	onclick={() => removeSubtitlePart(section.id, partIndex)}
+																	disabled={subtitleParts.length <= 1}
+																	class="p-1 text-red-400 hover:text-red-300 disabled:opacity-30"
+																	title="削除"
+																>
+																	<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+																		<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+																	</svg>
+																</button>
+															</div>
+														</div>
+													{/each}
+												</div>
+											{:else}
+												<!-- 自動モード（プレビュー表示） -->
+												<div class="flex flex-wrap gap-1">
+													{#each subtitleParts as part, partIndex}
+														<div class="relative group">
+															<div
+																class="bg-black/80 text-white text-xs px-2 py-1 rounded max-w-[200px] truncate cursor-pointer hover:bg-black/90"
+																title="クリックで編集モードに切り替え"
+																onclick={() => enableManualSubtitles(section.id, section.script)}
+															>
+																<span class="text-gray-500 mr-1">{partIndex + 1}.</span>{part}
+															</div>
+															<div class="absolute bottom-full left-0 mb-1 hidden group-hover:block z-10 pointer-events-none">
+																<div class="bg-gray-900 text-white text-xs p-2 rounded shadow-lg max-w-[300px] whitespace-pre-wrap border border-gray-600">
+																	{part}
+																	<div class="text-gray-500 mt-1">{part.length}文字</div>
+																</div>
+															</div>
+														</div>
+													{/each}
+												</div>
+												<p class="text-[10px] text-gray-600 mt-1">※クリックで手動編集モードに切り替え</p>
+											{/if}
+										</div>
+									{/if}
+
 									<!-- ビジュアル（スライド/画像選択） -->
 									<div>
 										<div class="flex items-center justify-between mb-1">
@@ -1719,6 +2048,110 @@
 						</div>
 					</div>
 				{/if}
+			</div>
+		</div>
+
+		<!-- Right: 字幕設定パネル -->
+		<div class="w-72 flex flex-col border-l border-gray-700 flex-shrink-0 bg-gray-800">
+			<div class="p-3 border-b border-gray-700">
+				<h2 class="text-sm font-semibold text-gray-300 flex items-center gap-2">
+					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+					</svg>
+					字幕設定
+				</h2>
+			</div>
+
+			<div class="flex-1 overflow-y-auto p-3 space-y-4">
+				<!-- 1行あたりの最大文字数 -->
+				<div>
+					<label class="flex items-center justify-between text-xs text-gray-400 mb-2">
+						<span>1行あたりの最大文字数</span>
+						<span class="text-blue-400 font-medium">{subtitleSettings.maxCharsPerLine}文字</span>
+					</label>
+					<input
+						type="range"
+						min="15"
+						max="50"
+						step="5"
+						bind:value={subtitleSettings.maxCharsPerLine}
+						class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
+					/>
+					<div class="flex justify-between text-[10px] text-gray-500 mt-1">
+						<span>15</span>
+						<span>30</span>
+						<span>50</span>
+					</div>
+				</div>
+
+				<!-- 再生倍率 -->
+				<div>
+					<label class="flex items-center justify-between text-xs text-gray-400 mb-2">
+						<span>再生倍率（VOICEVOX話速）</span>
+						<span class="text-blue-400 font-medium">{subtitleSettings.playbackRate.toFixed(1)}x</span>
+					</label>
+					<input
+						type="range"
+						min="0.5"
+						max="2.0"
+						step="0.1"
+						bind:value={subtitleSettings.playbackRate}
+						class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
+					/>
+					<div class="flex justify-between text-[10px] text-gray-500 mt-1">
+						<span>0.5x</span>
+						<span>1.0x</span>
+						<span>2.0x</span>
+					</div>
+					<p class="text-[10px] text-gray-500 mt-2 leading-relaxed">
+						VOICEVOXで話速を変更した場合、ここも同じ値に設定してください。
+					</p>
+				</div>
+
+				<!-- 句読点で分割 -->
+				<div class="flex items-center gap-2 py-2">
+					<input
+						type="checkbox"
+						id="splitByPunctuation"
+						bind:checked={subtitleSettings.splitByPunctuation}
+						class="w-4 h-4 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 accent-blue-500"
+					/>
+					<label for="splitByPunctuation" class="text-xs text-gray-400">
+						句読点（。！？）で分割する
+					</label>
+				</div>
+
+				<!-- プレビュー表示 -->
+				<div class="border-t border-gray-700 pt-4">
+					<div class="text-xs text-gray-400 mb-2">プレビュー</div>
+					<div class="bg-gray-900 rounded p-3 text-center">
+						<div class="bg-black/70 inline-block px-3 py-1 rounded">
+							<span class="text-white text-xs">サンプル字幕テキストです。</span>
+						</div>
+					</div>
+					<p class="text-[10px] text-gray-500 mt-2">
+						保存時に字幕データが自動生成されます。
+					</p>
+				</div>
+
+				<!-- 設定情報 -->
+				<div class="border-t border-gray-700 pt-4">
+					<div class="text-xs text-gray-400 mb-2">現在の設定</div>
+					<div class="space-y-1 text-[10px]">
+						<div class="flex justify-between">
+							<span class="text-gray-500">最大文字数:</span>
+							<span class="text-gray-300">{subtitleSettings.maxCharsPerLine}文字/行</span>
+						</div>
+						<div class="flex justify-between">
+							<span class="text-gray-500">再生倍率:</span>
+							<span class="text-gray-300">{subtitleSettings.playbackRate.toFixed(1)}倍速</span>
+						</div>
+						<div class="flex justify-between">
+							<span class="text-gray-500">分割方法:</span>
+							<span class="text-gray-300">{subtitleSettings.splitByPunctuation ? '句読点+文字数' : '文字数のみ'}</span>
+						</div>
+					</div>
+				</div>
 			</div>
 		</div>
 	</main>

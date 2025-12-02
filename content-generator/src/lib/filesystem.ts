@@ -567,6 +567,15 @@ async function getVideoSubfolder(): Promise<FileSystemDirectoryHandle | null> {
 }
 
 // 動画プロジェクトデータの型
+// 字幕エントリの型
+export interface SubtitleEntry {
+	id: string;
+	sectionId: string;
+	startTime: number;
+	endTime: number;
+	text: string;
+}
+
 export interface VideoProjectSaveData {
 	sections: Array<{
 		id: string;
@@ -578,10 +587,21 @@ export interface VideoProjectSaveData {
 		visualType: string;
 		audioFileName?: string;
 		imageFileName?: string;
+		scriptFileName?: string;
+		duration?: number; // 音声の長さ（秒）
 	}>;
 	sourceHtmlFileName?: string;
 	speakerId: number;
 	updatedAt: string;
+	// 字幕データと設定
+	subtitles?: SubtitleEntry[];
+	subtitleSettings?: {
+		maxCharsPerLine: number;
+		playbackRate: number;
+		splitByPunctuation: boolean;
+	};
+	// 手動編集された字幕テキスト（セクションID -> 字幕テキスト配列）
+	customSubtitleTexts?: Record<string, string[]>;
 	// スライドデータも保存
 	slidePresentation?: {
 		id: string;
@@ -801,11 +821,14 @@ export async function selectAndLoadVideoProject(projectId: string): Promise<{
 	}
 
 	try {
-		// フォルダを選択
+		// フォルダを選択（読み書き権限で開く）
 		// @ts-ignore
 		const selectedFolder: FileSystemDirectoryHandle = await window.showDirectoryPicker({
-			mode: 'read'
+			mode: 'readwrite'
 		});
+
+		// lastDirectoryHandleを設定（保存時にも使えるように）
+		lastDirectoryHandle = selectedFolder;
 
 		// videoサブフォルダを取得
 		let videoFolder: FileSystemDirectoryHandle;

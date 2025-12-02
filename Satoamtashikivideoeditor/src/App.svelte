@@ -1,13 +1,7 @@
 <script lang="ts">
   import type { Project, MediaItem, Clip, Track, TrackType } from './lib/types';
   import { createDefaultProject, createTrack, trackTypeNames } from './lib/types';
-  import { FFmpeg } from '@ffmpeg/ffmpeg';
-  import { fetchFile } from '@ffmpeg/util';
   import { Muxer, ArrayBufferTarget } from 'webm-muxer';
-
-  // FFmpegインスタンス
-  let ffmpeg: FFmpeg | null = null;
-  let ffmpegLoaded = $state(false);
 
   // ブラウザ用File System Access API
   let directoryHandle: FileSystemDirectoryHandle | null = null;
@@ -260,47 +254,6 @@
   let showExportDialog = $state(false);
   let selectedPreset = $state('youtube-1080p');
   let downloadBatchFile = $state(true); // バッチファイルも一緒にダウンロード（デフォルトON）
-
-  // FFmpegを初期化
-  async function loadFFmpeg(): Promise<void> {
-    if (ffmpegLoaded && ffmpeg) return;
-
-    ffmpeg = new FFmpeg();
-    ffmpeg.on('progress', ({ progress }) => {
-      exportProgress = `MP4変換中... ${Math.round(progress * 100)}%`;
-    });
-
-    await ffmpeg.load({
-      coreURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.js',
-      wasmURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm',
-    });
-
-    ffmpegLoaded = true;
-  }
-
-  // WebMをMP4に変換
-  async function convertWebMToMP4(webmBlob: Blob): Promise<Blob> {
-    if (!ffmpeg) throw new Error('FFmpeg not loaded');
-
-    const webmData = await fetchFile(webmBlob);
-    await ffmpeg.writeFile('input.webm', webmData);
-
-    await ffmpeg.exec([
-      '-i', 'input.webm',
-      '-c:v', 'libx264',
-      '-preset', 'fast',
-      '-crf', '23',
-      '-c:a', 'aac',
-      '-b:a', '128k',
-      'output.mp4'
-    ]);
-
-    const mp4Data = await ffmpeg.readFile('output.mp4');
-    await ffmpeg.deleteFile('input.webm');
-    await ffmpeg.deleteFile('output.mp4');
-
-    return new Blob([mp4Data], { type: 'video/mp4' });
-  }
 
   // WebCodecs APIのサポート確認
   function isWebCodecsSupported(): boolean {

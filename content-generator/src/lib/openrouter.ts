@@ -120,6 +120,70 @@ export const AVAILABLE_MODELS = [
 	{ id: 'deepseek/deepseek-chat', name: 'DeepSeek V3' },
 ];
 
+// スライド生成用モデル（JSON出力が得意なモデル）- 全て$3/1M以下
+export const SLIDE_GENERATION_MODELS = [
+	{
+		id: 'google/gemini-2.0-flash-001',
+		name: 'Gemini 2.0 Flash',
+		description: '高速・高品質（推奨）',
+		costInput: 0.10,
+		costOutput: 0.40
+	},
+	{
+		id: 'google/gemini-2.5-flash-preview',
+		name: 'Gemini 2.5 Flash',
+		description: '最新版・高精度',
+		costInput: 0.15,
+		costOutput: 0.60
+	},
+	{
+		id: 'deepseek/deepseek-chat',
+		name: 'DeepSeek V3',
+		description: '最安値・安定',
+		costInput: 0.14,
+		costOutput: 0.28
+	},
+	{
+		id: 'moonshotai/kimi-k2',
+		name: 'Kimi K2',
+		description: '無料枠あり',
+		costInput: 0,
+		costOutput: 0
+	},
+];
+
+// LLMスライド/HPテンプレート生成用モデル（HTML/Tailwind出力が得意）- 全て$3/1M以下
+export const HTML_GENERATION_MODELS = [
+	{
+		id: 'google/gemini-2.0-flash-001',
+		name: 'Gemini 2.0 Flash',
+		description: '高速・バランス良（推奨）',
+		costInput: 0.10,
+		costOutput: 0.40
+	},
+	{
+		id: 'deepseek/deepseek-chat',
+		name: 'DeepSeek V3',
+		description: '最安値・コード得意',
+		costInput: 0.14,
+		costOutput: 0.28
+	},
+	{
+		id: 'google/gemini-2.5-flash-preview',
+		name: 'Gemini 2.5 Flash',
+		description: '高精度・デザイン優秀',
+		costInput: 0.15,
+		costOutput: 0.60
+	},
+	{
+		id: 'moonshotai/kimi-k2',
+		name: 'Kimi K2',
+		description: '無料枠あり',
+		costInput: 0,
+		costOutput: 0
+	},
+];
+
 // 利用可能な画像生成モデル
 export const IMAGE_GENERATION_MODELS = [
 	{

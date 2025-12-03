@@ -18,6 +18,7 @@ export interface SubtitleData {
 // 字幕設定
 export interface SubtitleSettings {
 	maxCharsPerLine: number; // 1行あたりの最大文字数
+	minCharsPerLine: number; // 1行あたりの最小文字数（これより短い場合は前の行と結合）
 	playbackRate: number; // 再生倍率（1.0 = 通常、1.5 = 1.5倍速など）
 	splitByPunctuation: boolean; // 句読点で分割するか
 }
@@ -25,7 +26,8 @@ export interface SubtitleSettings {
 // デフォルト設定
 // 1行20文字程度がYouTubeやテレビ字幕の標準的な長さ
 export const DEFAULT_SUBTITLE_SETTINGS: SubtitleSettings = {
-	maxCharsPerLine: 20,
+	maxCharsPerLine: 25,
+	minCharsPerLine: 8, // 8文字未満は前の行と結合
 	playbackRate: 1.0,
 	splitByPunctuation: true
 };
@@ -90,8 +92,8 @@ export function splitTextForSubtitles(
 	text: string,
 	settings: SubtitleSettings = DEFAULT_SUBTITLE_SETTINGS
 ): string[] {
-	const { maxCharsPerLine, splitByPunctuation } = settings;
-	const sentences: string[] = [];
+	const { maxCharsPerLine, minCharsPerLine, splitByPunctuation } = settings;
+	let sentences: string[] = [];
 
 	if (splitByPunctuation) {
 		// 句読点で分割
@@ -105,7 +107,7 @@ export function splitTextForSubtitles(
 				if (currentSentence.trim()) {
 					// 最大文字数を超える場合はさらに分割
 					if (currentSentence.length > maxCharsPerLine) {
-						const subSentences = splitLongSentence(currentSentence, maxCharsPerLine);
+						const subSentences = splitLongSentence(currentSentence, maxCharsPerLine, minCharsPerLine);
 						sentences.push(...subSentences);
 					} else {
 						sentences.push(currentSentence.trim());
@@ -132,11 +134,49 @@ export function splitTextForSubtitles(
 		}
 	}
 
+	// 短すぎる断片を前の文と結合
+	sentences = mergeShortFragments(sentences, minCharsPerLine, maxCharsPerLine);
+
 	return sentences.filter(s => s.length > 0);
 }
 
+// 短すぎる断片を前の文と結合する
+function mergeShortFragments(sentences: string[], minChars: number, maxChars: number): string[] {
+	if (sentences.length <= 1) return sentences;
+
+	const result: string[] = [];
+
+	for (let i = 0; i < sentences.length; i++) {
+		const current = sentences[i];
+
+		// 現在の文が短すぎる場合
+		if (current.length < minChars) {
+			if (result.length > 0) {
+				// 前の文と結合（最大文字数を超えない場合）
+				const prev = result[result.length - 1];
+				if (prev.length + current.length <= maxChars) {
+					result[result.length - 1] = prev + current;
+					continue;
+				}
+			}
+			// 前と結合できない場合は、次の文と結合を試みる
+			if (i < sentences.length - 1) {
+				const next = sentences[i + 1];
+				if (current.length + next.length <= maxChars) {
+					sentences[i + 1] = current + next;
+					continue;
+				}
+			}
+		}
+
+		result.push(current);
+	}
+
+	return result;
+}
+
 // 長い文章を読点やスペースで分割
-function splitLongSentence(text: string, maxChars: number): string[] {
+function splitLongSentence(text: string, maxChars: number, minChars: number = 8): string[] {
 	const result: string[] = [];
 
 	// まず読点で分割を試みる
@@ -155,8 +195,8 @@ function splitLongSentence(text: string, maxChars: number): string[] {
 			current = part;
 		}
 
-		// 読点の後で区切りを入れる
-		if (/[、,]/.test(part) && current.length >= maxChars * 0.5) {
+		// 読点の後で区切りを入れる（ただし最小文字数以上の場合のみ）
+		if (/[、,]/.test(part) && current.length >= Math.max(maxChars * 0.5, minChars)) {
 			result.push(current.trim());
 			current = '';
 		}

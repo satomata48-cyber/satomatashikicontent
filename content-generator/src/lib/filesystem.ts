@@ -29,10 +29,12 @@ export function getLastDirectoryHandle(): FileSystemDirectoryHandle | null {
 }
 
 // HTMLファイルを保存（File System Access API対応）
+// contentType を指定するとサブフォルダ(blogs, ebooks等)に保存
 export async function saveHtmlFile(
 	folderPath: string,
 	fileName: string,
-	content: string
+	content: string,
+	contentType?: string
 ): Promise<{ success: boolean; filePath?: string; error?: string }> {
 	const sanitizedFileName = sanitizeFileName(fileName);
 	const fullFileName = sanitizedFileName.endsWith('.html')
@@ -67,15 +69,27 @@ export async function saveHtmlFile(
 			}
 		}
 
+		// コンテンツタイプが指定されている場合はサブフォルダに保存
+		let targetFolder: FileSystemDirectoryHandle = lastDirectoryHandle;
+		let folderPrefix = lastDirectoryHandle.name;
+
+		if (contentType) {
+			const subfolder = await getContentSubfolder(contentType);
+			if (subfolder) {
+				targetFolder = subfolder;
+				folderPrefix = `${lastDirectoryHandle.name}/${getContentTypeFolder(contentType)}`;
+			}
+		}
+
 		// フォルダ内にファイルを作成
-		console.log('saveHtmlFile: Creating file:', fullFileName, 'in folder:', lastDirectoryHandle.name);
-		const fileHandle = await lastDirectoryHandle.getFileHandle(fullFileName, { create: true });
+		console.log('saveHtmlFile: Creating file:', fullFileName, 'in folder:', folderPrefix);
+		const fileHandle = await targetFolder.getFileHandle(fullFileName, { create: true });
 		const writable = await fileHandle.createWritable();
 		await writable.write(content);
 		await writable.close();
 
 		console.log('saveHtmlFile: File saved successfully');
-		return { success: true, filePath: `${lastDirectoryHandle.name}/${fullFileName}` };
+		return { success: true, filePath: `${folderPrefix}/${fullFileName}` };
 	} catch (e) {
 		console.error('File System Access API save failed:', e);
 		if (e instanceof Error && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) {
@@ -207,11 +221,32 @@ export function getContentTypeFolder(type: string): string {
 	return folders[type] || 'contents';
 }
 
+// コンテンツタイプのサブフォルダを取得または作成
+export async function getOrCreateSubfolder(folderName: string): Promise<FileSystemDirectoryHandle | null> {
+	if (!lastDirectoryHandle) return null;
+
+	try {
+		const subfolder = await lastDirectoryHandle.getDirectoryHandle(folderName, { create: true });
+		return subfolder;
+	} catch (e) {
+		console.error(`Failed to get/create subfolder ${folderName}:`, e);
+		return null;
+	}
+}
+
+// コンテンツタイプに応じたサブフォルダを取得または作成
+export async function getContentSubfolder(contentType: string): Promise<FileSystemDirectoryHandle | null> {
+	const folderName = getContentTypeFolder(contentType);
+	return getOrCreateSubfolder(folderName);
+}
+
 // 画像ファイルを保存（PNG形式）
+// contentType を指定するとサブフォルダ(images等)に保存
 export async function saveImageFile(
 	folderPath: string,
 	fileName: string,
-	dataUrl: string
+	dataUrl: string,
+	contentType?: string
 ): Promise<{ success: boolean; filePath?: string; error?: string }> {
 	const sanitizedFileName = sanitizeFileName(fileName);
 	const fullFileName = sanitizedFileName.endsWith('.png')
@@ -225,12 +260,24 @@ export async function saveImageFile(
 	// File System Access APIが使える場合、選択したフォルダに直接保存
 	if (lastDirectoryHandle) {
 		try {
-			const fileHandle = await lastDirectoryHandle.getFileHandle(fullFileName, { create: true });
+			// コンテンツタイプが指定されている場合はサブフォルダに保存
+			let targetFolder: FileSystemDirectoryHandle = lastDirectoryHandle;
+			let folderPrefix = lastDirectoryHandle.name;
+
+			if (contentType) {
+				const subfolder = await getContentSubfolder(contentType);
+				if (subfolder) {
+					targetFolder = subfolder;
+					folderPrefix = `${lastDirectoryHandle.name}/${getContentTypeFolder(contentType)}`;
+				}
+			}
+
+			const fileHandle = await targetFolder.getFileHandle(fullFileName, { create: true });
 			const writable = await fileHandle.createWritable();
 			await writable.write(blob);
 			await writable.close();
 
-			return { success: true, filePath: `${lastDirectoryHandle.name}/${fullFileName}` };
+			return { success: true, filePath: `${folderPrefix}/${fullFileName}` };
 		} catch (e) {
 			console.error('File System Access API save failed:', e);
 			if (e instanceof Error && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) {
@@ -263,10 +310,12 @@ export async function saveImageFile(
 }
 
 // Blobから画像ファイルを保存
+// contentType を指定するとサブフォルダに保存
 export async function saveImageBlob(
 	folderPath: string,
 	fileName: string,
-	blob: Blob
+	blob: Blob,
+	contentType?: string
 ): Promise<{ success: boolean; filePath?: string; error?: string }> {
 	const sanitizedFileName = sanitizeFileName(fileName);
 	const fullFileName = sanitizedFileName.endsWith('.png')
@@ -276,12 +325,24 @@ export async function saveImageBlob(
 	// File System Access APIが使える場合、選択したフォルダに直接保存
 	if (lastDirectoryHandle) {
 		try {
-			const fileHandle = await lastDirectoryHandle.getFileHandle(fullFileName, { create: true });
+			// コンテンツタイプが指定されている場合はサブフォルダに保存
+			let targetFolder: FileSystemDirectoryHandle = lastDirectoryHandle;
+			let folderPrefix = lastDirectoryHandle.name;
+
+			if (contentType) {
+				const subfolder = await getContentSubfolder(contentType);
+				if (subfolder) {
+					targetFolder = subfolder;
+					folderPrefix = `${lastDirectoryHandle.name}/${getContentTypeFolder(contentType)}`;
+				}
+			}
+
+			const fileHandle = await targetFolder.getFileHandle(fullFileName, { create: true });
 			const writable = await fileHandle.createWritable();
 			await writable.write(blob);
 			await writable.close();
 
-			return { success: true, filePath: `${lastDirectoryHandle.name}/${fullFileName}` };
+			return { success: true, filePath: `${folderPrefix}/${fullFileName}` };
 		} catch (e) {
 			console.error('File System Access API save failed:', e);
 			if (e instanceof Error && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) {
@@ -585,6 +646,7 @@ export interface VideoProjectSaveData {
 		script: string;
 		selectedSlideId?: string;
 		visualType: string;
+		hpTemplateId?: string; // HPテンプレートID
 		audioFileName?: string;
 		imageFileName?: string;
 		scriptFileName?: string;
@@ -646,6 +708,7 @@ export async function loadVideoProjectData(projectId: string): Promise<{
 	success: boolean;
 	data?: VideoProjectSaveData;
 	error?: string;
+	actualProjectId?: string;
 }> {
 	const videoFolder = await getVideoSubfolder();
 	if (!videoFolder) {
@@ -653,13 +716,34 @@ export async function loadVideoProjectData(projectId: string): Promise<{
 	}
 
 	try {
+		// まず指定されたprojectIdで探す
 		const fileName = getVideoDataFileName(projectId);
-		const fileHandle = await videoFolder.getFileHandle(fileName);
-		const file = await fileHandle.getFile();
-		const content = await file.text();
-		const data = JSON.parse(content);
+		try {
+			const fileHandle = await videoFolder.getFileHandle(fileName);
+			const file = await fileHandle.getFile();
+			const content = await file.text();
+			const data = JSON.parse(content);
+			return { success: true, data, actualProjectId: projectId };
+		} catch {
+			// 見つからない場合は、videoフォルダ内のvideo-data-*.jsonを探す
+		}
 
-		return { success: true, data };
+		// videoフォルダ内のファイルを探索
+		for await (const entry of videoFolder.values()) {
+			if (entry.kind === 'file' && entry.name.startsWith('video-data-') && entry.name.endsWith('.json')) {
+				const fileHandle = await videoFolder.getFileHandle(entry.name);
+				const file = await fileHandle.getFile();
+				const content = await file.text();
+				const data = JSON.parse(content);
+				// ファイル名からプロジェクトIDを抽出
+				const match = entry.name.match(/video-data-(.+)\.json/);
+				const actualId = match ? match[1] : projectId;
+				console.log(`Found video data file: ${entry.name}, actualProjectId: ${actualId}`);
+				return { success: true, data, actualProjectId: actualId };
+			}
+		}
+
+		return { success: false, error: '動画データファイルが見つかりません' };
 	} catch (e) {
 		if (e instanceof Error && e.name === 'NotFoundError') {
 			return { success: false, error: '動画データファイルが見つかりません' };
@@ -813,6 +897,7 @@ export async function selectAndLoadVideoProject(projectId: string): Promise<{
 	data?: VideoProjectSaveData;
 	audioFiles?: Map<string, ArrayBuffer>;
 	imageFiles?: Map<string, string>;
+	actualProjectId?: string;
 	error?: string;
 }> {
 	// @ts-ignore - File System Access API
@@ -841,6 +926,7 @@ export async function selectAndLoadVideoProject(projectId: string): Promise<{
 		// プロジェクトデータファイルを読み込み
 		const fileName = getVideoDataFileName(projectId);
 		let data: VideoProjectSaveData;
+		let actualProjectId = projectId;
 
 		try {
 			const fileHandle = await videoFolder.getFileHandle(fileName);
@@ -848,7 +934,31 @@ export async function selectAndLoadVideoProject(projectId: string): Promise<{
 			const content = await file.text();
 			data = JSON.parse(content);
 		} catch (e) {
-			return { success: false, error: `動画データファイル(${fileName})が見つかりません` };
+			// 指定されたprojectIdのファイルが見つからない場合、videoフォルダ内のvideo-data-*.jsonを探す
+			let found = false;
+			for await (const entry of videoFolder.values()) {
+				if (entry.kind === 'file' && entry.name.startsWith('video-data-') && entry.name.endsWith('.json')) {
+					try {
+						const fileHandle = await videoFolder.getFileHandle(entry.name);
+						const file = await fileHandle.getFile();
+						const content = await file.text();
+						data = JSON.parse(content);
+						// ファイル名からプロジェクトIDを抽出
+						const match = entry.name.match(/video-data-(.+)\.json/);
+						if (match) {
+							actualProjectId = match[1];
+						}
+						console.log(`Found existing video data: ${entry.name}, projectId: ${actualProjectId}`);
+						found = true;
+						break;
+					} catch (parseError) {
+						console.warn(`Failed to parse ${entry.name}:`, parseError);
+					}
+				}
+			}
+			if (!found) {
+				return { success: false, error: 'videoフォルダ内に動画データファイルが見つかりません' };
+			}
 		}
 
 		// 音声ファイルを読み込み
@@ -894,7 +1004,8 @@ export async function selectAndLoadVideoProject(projectId: string): Promise<{
 			folderName: selectedFolder.name,
 			data,
 			audioFiles,
-			imageFiles
+			imageFiles,
+			actualProjectId
 		};
 	} catch (e) {
 		if (e instanceof Error && e.name === 'AbortError') {

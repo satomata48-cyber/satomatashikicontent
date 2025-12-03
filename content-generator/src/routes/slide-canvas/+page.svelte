@@ -970,7 +970,7 @@ ${isSatomata ? `
 			}
 
 			const fileName = `${presentation.title}_slide${currentSlideIndex + 1}`;
-			const result = await saveImageFile(project.folderPath || 'slides', fileName, dataUrl);
+			const result = await saveImageFile(project.folderPath || 'slides', fileName, dataUrl, 'slide-canvas');
 
 			if (result.success) {
 				successMessage = `保存しました: ${result.filePath}`;
@@ -1073,7 +1073,7 @@ ${isSatomata ? `
 				const savedCount = { success: 0, failed: 0 };
 				for (let i = 0; i < slideImages.length; i++) {
 					const fileName = `${presentation.title}_slide${i + 1}`;
-					const result = await saveImageFile(project.folderPath || 'slides', fileName, slideImages[i]);
+					const result = await saveImageFile(project.folderPath || 'slides', fileName, slideImages[i], 'slide-canvas');
 					if (result.success) {
 						savedCount.success++;
 					} else {
@@ -1107,7 +1107,7 @@ ${isSatomata ? `
 	}
 
 	function goBack() {
-		goto(`/project/${projectId}`);
+		goto('/');
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {

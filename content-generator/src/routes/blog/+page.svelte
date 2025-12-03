@@ -337,7 +337,7 @@ ${selectedText}
 			const title = contentTitle.trim() || extractTitleFromHtml(generatedHtml) || chatMessages.find(m => m.role === 'user')?.content.substring(0, 30) || '無題';
 			const folderPath = project.folderPath || getContentTypeFolder(contentType);
 
-			const result = await saveHtmlFile(folderPath, title, generatedHtml);
+			const result = await saveHtmlFile(folderPath, title, generatedHtml, contentType);
 
 			if (result.success) {
 				currentFilePath = result.filePath || '';
@@ -414,7 +414,7 @@ ${selectedText}
 	}
 
 	function goBack() {
-		goto(`/project/${projectId}`);
+		goto('/');
 	}
 
 	// HTMLからタイトルを抽出

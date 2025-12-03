@@ -8,16 +8,46 @@ export interface Section {
 	textContent: string; // HTMLタグを除いたテキスト
 }
 
+// SlideData型をインポート（slideCanvasTypes.tsから）
+export interface SlideDataForVideo {
+	id: string;
+	name: string;
+	backgroundColor: string;
+	elements: {
+		id: string;
+		type: 'text' | 'rect' | 'circle' | 'line' | 'arrow' | 'star';
+		x: number;
+		y: number;
+		width?: number;
+		height?: number;
+		text?: string;
+		fontSize?: number;
+		fontFamily?: string;
+		fontStyle?: 'normal' | 'bold' | 'italic' | 'bold italic';
+		align?: 'left' | 'center' | 'right';
+		fill?: string;
+		stroke?: string;
+		strokeWidth?: number;
+	}[];
+}
+
 export interface VideoSection extends Section {
 	script: string; // 読み上げ用台本
 	audioData?: ArrayBuffer;
 	audioUrl?: string;
 	audioDuration?: number; // 秒
 	imageUrl?: string;
-	// スライド選択
+	// スライド選択（既存スライドから選択）
 	selectedSlideId?: string; // 選択されたスライドのID
 	slideImageUrl?: string; // スライドを画像化したURL
-	visualType: 'ai-image' | 'slide' | 'none'; // ビジュアルタイプ
+	visualType: 'ai-image' | 'slide' | 'hp-template' | 'canvas-slide' | 'none'; // ビジュアルタイプ
+	// HPテンプレート（Tailwind CSS HTML）
+	hpTemplateId?: string; // 選択されたHPテンプレートのID
+	hpTemplateImageUrl?: string; // HPテンプレートを画像化したURL
+	hpSlideHtml?: string; // 生成されたHPテンプレートHTML（全内容含む）
+	// Canvas/Konvaスライド（slide-canvasと同じ形式）
+	canvasSlideData?: SlideDataForVideo; // AI生成されたSlideData JSON
+	canvasSlideImageUrl?: string; // Canvasスライドを画像化したURL
 	// ファイル保存用
 	audioFileName?: string; // 保存された音声ファイル名
 	imageFileName?: string; // 保存された画像ファイル名

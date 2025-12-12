@@ -2,14 +2,11 @@
 	import { onMount } from 'svelte';
 	import favicon from '$lib/assets/favicon.svg';
 	import '../app.css';
-	import { restoreDataFolderHandle, projectStore } from '$lib/stores';
+	import { restoreDataFolderHandle } from '$lib/stores';
 
 	let { children } = $props();
 
 	onMount(async () => {
-		// IndexedDBからプロジェクトを読み込み
-		await projectStore.init();
-
 		// フォルダハンドルを復元（コンテンツファイル用）
 		try {
 			await restoreDataFolderHandle();

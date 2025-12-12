@@ -13,7 +13,18 @@
       "Bash(git add:*)",
       "Bash(git reset:*)",
       "Bash(git commit -m \"$(cat <<''EOF''\nAdd video editor with WebCodecs export and fix batch file encoding\n\n- Add Satoamtashikivideoeditor: Tauri-based video editor with timeline UI\n- Implement WebCodecs + webm-muxer for fast video export (YMM4-style)\n- Fix batch file variable expansion with setlocal enabledelayedexpansion\n- Add encoder queue management to prevent memory issues\n- Support multiple codec fallback (VP9, VP8, H.264)\n- Add content-generator script and subtitle utilities\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(git commit:*)",
+      "Bash(netstat:*)",
+      "Bash(taskkill:*)",
+      "Bash(kill:*)",
+      "Bash(git restore:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(curl:*)",
+      "Bash(npm run build:*)",
+      "Bash(cmd /c \"cd /d C:\\Users\\lipto\\desktop\\satomatashikicontent\\content-generator && npm run build\")",
+      "Bash(tasklist:*)",
+      "Bash(cmd /c \"taskkill /F /PID 34340\")"
     ],
     "deny": [],
     "ask": []

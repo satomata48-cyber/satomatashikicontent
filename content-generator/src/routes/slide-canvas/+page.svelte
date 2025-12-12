@@ -1,10 +1,9 @@
 <script lang="ts">
-	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
-	import { projectStore, SYSTEM_API_KEY, type Project, type ContentItem } from '$lib/stores';
+	import { SYSTEM_API_KEY } from '$lib/stores';
 	import { generateContent, type OpenRouterConfig, type ChatMessage } from '$lib/openrouter';
-	import { saveImageFile, selectFolder, getLastDirectoryHandle, saveJsonFile, loadJsonFile, getSlideDataFileName, setLastDirectoryHandle, listHtmlFiles } from '$lib/filesystem';
+	import { saveImageFile, selectFolder, getLastDirectoryHandle, saveJsonFile, loadJsonFile, listHtmlFiles } from '$lib/filesystem';
 	import SlideCanvas from '$lib/components/SlideCanvas.svelte';
 	import SlideToolbar from '$lib/components/SlideToolbar.svelte';
 	import {
@@ -28,9 +27,6 @@
 	} from '$lib/slideCanvasTemplates';
 	import { exportPresentationToJson } from '$lib/slideExporter';
 
-	let projectId = $state('');
-	let project = $state<Project | null>(null);
-
 	// API設定
 	const apiKey = SYSTEM_API_KEY;
 
@@ -52,16 +48,12 @@
 	let chatMessages = $state<{ role: 'user' | 'assistant'; content: string }[]>([]);
 	let userInput = $state('');
 
-	// 既存コンテンツ
-	let availableContents = $state<ContentItem[]>([]);
-	let selectedContentId = $state<string>('');
-	let selectedContent = $state<ContentItem | null>(null);
+	// ソースHTML
 	let sourceHtml = $state('');
 
 	// フォルダ内HTMLファイル
 	let folderHtmlFiles = $state<{ name: string; content: string }[]>([]);
 	let selectedHtmlFileName = $state<string>('');
-	let contentSourceType = $state<'project' | 'folder'>('project');
 
 	// テンプレート選択・編集
 	let selectedTemplateId = $state('blank');
@@ -105,8 +97,6 @@
 
 	// スライドデータをJSONファイルとして保存
 	async function saveSlideData() {
-		if (!project) return;
-
 		isSaving = true;
 		errorMessage = '';
 		successMessage = '';
@@ -121,13 +111,10 @@
 					isSaving = false;
 					return;
 				}
-				if (folderResult.path) {
-					projectStore.updateProject(projectId, { folderPath: folderResult.path });
-				}
 			}
 
-			const fileName = getSlideDataFileName(projectId);
-			const result = await saveJsonFile(project.folderPath || '', fileName, {
+			const fileName = `${presentation.title || 'slide_data'}.json`;
+			const result = await saveJsonFile('', fileName, {
 				presentation,
 				selectedTemplateId,
 				savedAt: new Date().toISOString()
@@ -189,17 +176,6 @@
 
 	// 現在のスライド
 	let currentSlide = $derived(presentation.slides[currentSlideIndex] || null);
-
-	page.subscribe(p => {
-		projectId = p.params.id;
-	});
-
-	projectStore.subscribe(projects => {
-		project = projects.find(p => p.id === projectId) || null;
-		if (project) {
-			availableContents = project.contents.filter(c => c.type === 'blog' || c.type === 'ebook');
-		}
-	});
 
 	// テンプレートを変更
 	function changeTemplate(templateId: string) {
@@ -323,26 +299,6 @@
 				const newTemplateId = remaining.length > 0 ? remaining[0].id : 'blank';
 				changeTemplate(newTemplateId);
 			}
-		}
-	}
-
-	// コンテンツを選択して読み込み（プロジェクト内コンテンツ）
-	function loadContent(contentId: string) {
-		selectedContentId = contentId;
-		selectedHtmlFileName = '';
-		selectedContent = availableContents.find(c => c.id === contentId) || null;
-		if (selectedContent) {
-			sourceHtml = selectedContent.content;
-			presentation = {
-				...presentation,
-				title: selectedContent.title + '_スライド'
-			};
-			errorMessage = '';
-			successMessage = '';
-			chatMessages = [...chatMessages, {
-				role: 'assistant',
-				content: `「${selectedContent.title}」を読み込みました。\n\n「スライドを生成」ボタンを押してください。`
-			}];
 		}
 	}
 
@@ -940,7 +896,7 @@ ${isSatomata ? `
 
 	// 現在のスライドを画像として保存
 	async function saveCurrentSlide() {
-		if (!project || !canvasRef) return;
+		if (!canvasRef) return;
 
 		isSaving = true;
 		errorMessage = '';
@@ -956,9 +912,6 @@ ${isSatomata ? `
 					isSaving = false;
 					return;
 				}
-				if (folderResult.path) {
-					projectStore.updateProject(projectId, { folderPath: folderResult.path });
-				}
 			}
 
 			// 現在のスライドを画像としてエクスポート
@@ -970,7 +923,7 @@ ${isSatomata ? `
 			}
 
 			const fileName = `${presentation.title}_slide${currentSlideIndex + 1}`;
-			const result = await saveImageFile(project.folderPath || 'slides', fileName, dataUrl, 'slide-canvas');
+			const result = await saveImageFile('slides', fileName, dataUrl, 'slide-canvas');
 
 			if (result.success) {
 				successMessage = `保存しました: ${result.filePath}`;
@@ -987,7 +940,7 @@ ${isSatomata ? `
 
 	// 全スライドを保存（画像またはPDF）
 	async function saveAllSlides() {
-		if (!project || !canvasRef) return;
+		if (!canvasRef) return;
 
 		isSaving = true;
 		errorMessage = '';
@@ -1043,15 +996,6 @@ ${isSatomata ? `
 				document.body.removeChild(a);
 				URL.revokeObjectURL(url);
 
-				// プロジェクトにコンテンツとして登録
-				projectStore.addContent(projectId, {
-					type: 'slide-canvas',
-					title: presentation.title,
-					content: `${slideImages.length}枚のスライドPDF`,
-					filePath: project.folderPath || 'slides',
-					fileName: `${presentation.title}.pdf`,
-					status: 'completed'
-				});
 				successMessage = `PDFを保存しました（${slideImages.length}枚）`;
 				chatMessages = [...chatMessages, { role: 'assistant', content: successMessage }];
 			} else {
@@ -1065,15 +1009,12 @@ ${isSatomata ? `
 						isSaving = false;
 						return;
 					}
-					if (folderResult.path) {
-						projectStore.updateProject(projectId, { folderPath: folderResult.path });
-					}
 				}
 
 				const savedCount = { success: 0, failed: 0 };
 				for (let i = 0; i < slideImages.length; i++) {
 					const fileName = `${presentation.title}_slide${i + 1}`;
-					const result = await saveImageFile(project.folderPath || 'slides', fileName, slideImages[i], 'slide-canvas');
+					const result = await saveImageFile('slides', fileName, slideImages[i], 'slide-canvas');
 					if (result.success) {
 						savedCount.success++;
 					} else {
@@ -1082,14 +1023,6 @@ ${isSatomata ? `
 				}
 
 				if (savedCount.success > 0) {
-					projectStore.addContent(projectId, {
-						type: 'slide-canvas',
-						title: presentation.title,
-						content: `${savedCount.success}枚のスライド画像`,
-						filePath: project.folderPath || 'slides',
-						fileName: `${presentation.title}_slides`,
-						status: 'completed'
-					});
 					successMessage = `${savedCount.success}枚のスライドを保存しました`;
 					if (savedCount.failed > 0) {
 						successMessage += ` (${savedCount.failed}枚失敗)`;
@@ -1138,7 +1071,7 @@ ${isSatomata ? `
 					</svg>
 				</button>
 				<span class="px-2 py-1 rounded text-xs font-medium bg-amber-500">スライド</span>
-				<h1 class="text-lg font-semibold">{project?.name || 'プロジェクト'}</h1>
+				<h1 class="text-lg font-semibold">スライドキャンバス</h1>
 			</div>
 			<div class="flex items-center gap-3">
 				<div class="flex items-center gap-1.5 px-2 py-1 bg-green-600/20 border border-green-500 rounded text-xs">
@@ -1220,87 +1153,53 @@ ${isSatomata ? `
 
 			<!-- コンテンツ選択 -->
 			<div class="p-3 bg-gray-800/50 border-b border-gray-700">
-				<div class="text-xs text-gray-400 mb-2">変換元コンテンツ</div>
-				<!-- タブ切り替え -->
-				<div class="flex gap-1 mb-2">
+				<div class="text-xs text-gray-400 mb-2">変換元コンテンツ（フォルダ内HTML）</div>
+
+				<div class="space-y-2">
+					{#if getLastDirectoryHandle()}
+						<div class="text-[10px] text-gray-400 truncate px-1">
+							📁 {getLastDirectoryHandle()?.name}
+						</div>
+					{/if}
 					<button
-						onclick={() => { contentSourceType = 'project'; }}
-						class="flex-1 px-2 py-1 text-xs rounded transition-colors {contentSourceType === 'project' ? 'bg-orange-600' : 'bg-gray-700 hover:bg-gray-600'}"
+						onclick={async () => {
+							const result = await selectFolder();
+							if (result.success) {
+								await refreshFolderHtmlFiles();
+							}
+						}}
+						class="w-full bg-gray-700 hover:bg-gray-600 px-2 py-1.5 rounded text-xs transition-colors flex items-center justify-center gap-1"
 					>
-						プロジェクト内
+						<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+						</svg>
+						{getLastDirectoryHandle() ? 'フォルダを変更' : 'フォルダを選択'}
 					</button>
-					<button
-						onclick={async () => { contentSourceType = 'folder'; await refreshFolderHtmlFiles(); }}
-						class="flex-1 px-2 py-1 text-xs rounded transition-colors {contentSourceType === 'folder' ? 'bg-orange-600' : 'bg-gray-700 hover:bg-gray-600'}"
-					>
-						フォルダ内HTML
-					</button>
+					{#if folderHtmlFiles.length > 0}
+						<select
+							onchange={(e) => loadHtmlFromFolder((e.target as HTMLSelectElement).value)}
+							class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-orange-500"
+						>
+							<option value="">HTMLファイルを選択...</option>
+							{#each folderHtmlFiles as file (file.name)}
+								<option value={file.name} selected={selectedHtmlFileName === file.name}>
+									{file.name}
+								</option>
+							{/each}
+						</select>
+						<div class="text-[10px] text-gray-500">{folderHtmlFiles.length}個のHTMLファイル</div>
+					{:else if getLastDirectoryHandle()}
+						<div class="text-xs text-gray-500 text-center py-2">
+							このフォルダにHTMLファイルがありません
+						</div>
+					{:else}
+						<div class="text-xs text-gray-500 text-center py-2">
+							フォルダを選択してください
+						</div>
+					{/if}
 				</div>
 
-				{#if contentSourceType === 'project'}
-					<!-- プロジェクト内コンテンツ -->
-					<select
-						onchange={(e) => loadContent((e.target as HTMLSelectElement).value)}
-						class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-orange-500"
-					>
-						<option value="">選択してください...</option>
-						{#each availableContents as content (content.id)}
-							<option value={content.id} selected={selectedContentId === content.id}>
-								[{content.type === 'blog' ? 'ブログ' : '電子書籍'}] {content.title}
-							</option>
-						{/each}
-					</select>
-				{:else}
-					<!-- フォルダ内HTMLファイル -->
-					<div class="space-y-2">
-						{#if getLastDirectoryHandle()}
-							<div class="text-[10px] text-gray-400 truncate px-1">
-								📁 {getLastDirectoryHandle()?.name}
-							</div>
-						{/if}
-						<button
-							onclick={async () => {
-								const result = await selectFolder();
-								if (result.success) {
-									if (result.path && project) {
-										projectStore.updateProject(projectId, { folderPath: result.path });
-									}
-									await refreshFolderHtmlFiles();
-								}
-							}}
-							class="w-full bg-gray-700 hover:bg-gray-600 px-2 py-1.5 rounded text-xs transition-colors flex items-center justify-center gap-1"
-						>
-							<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-							</svg>
-							{getLastDirectoryHandle() ? 'フォルダを変更' : 'プロジェクトフォルダを選択'}
-						</button>
-						{#if folderHtmlFiles.length > 0}
-							<select
-								onchange={(e) => loadHtmlFromFolder((e.target as HTMLSelectElement).value)}
-								class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-orange-500"
-							>
-								<option value="">HTMLファイルを選択...</option>
-								{#each folderHtmlFiles as file (file.name)}
-									<option value={file.name} selected={selectedHtmlFileName === file.name}>
-										{file.name}
-									</option>
-								{/each}
-							</select>
-							<div class="text-[10px] text-gray-500">{folderHtmlFiles.length}個のHTMLファイル</div>
-						{:else if getLastDirectoryHandle()}
-							<div class="text-xs text-gray-500 text-center py-2">
-								このフォルダにHTMLファイルがありません
-							</div>
-						{:else}
-							<div class="text-xs text-gray-500 text-center py-2">
-								プロジェクトフォルダを選択してください
-							</div>
-						{/if}
-					</div>
-				{/if}
-
-				{#if selectedContent || selectedHtmlFileName}
+				{#if selectedHtmlFileName}
 					<button
 						onclick={generateSlides}
 						disabled={isGenerating}
